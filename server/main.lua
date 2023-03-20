@@ -1,11 +1,9 @@
-local ESX = nil
-
-TriggerEvent('esx:getSharedObject', function(obj) ESX = obj end)
-
+local ox_inventory = exports.ox_inventory
 RegisterServerEvent('esx-fuel:server:Pay', function(amount)
     local src = source
     local Player = ESX.GetPlayerFromId(src)
     Player.removeMoney(amount)
+    TriggerEvent('addfeetobusiness', src, 'char1:b4eaa6f80adbfaa5ee80c031d57ff1d3e6596f25', amount)
 end)
 
 RegisterServerEvent('esx-fuel:server:GiveJerrican', function()
@@ -49,12 +47,45 @@ ESX.RegisterServerCallback('esx-fuel:server:GetTimeInGarage', function(source, c
     end
 end)
 
-ESX.RegisterCommand("fuel", 'admin', function(xPlayer, args, showError)
-    local amount = tonumber(args.amount)
-    if not amount then
-        amount = 100
-    end
-    xPlayer.triggerEvent('esx-fuel:SetFuel', amount)
-end, false, {help = "Set fuel/charge for vehicle", validate = false, arguments = {
-	{name = 'amount',validate = false, help = "Amount", type = 'string'}
-}}) 
+RegisterNetEvent('fuel:updateFuelCan', function(durability)
+	local source = source
+	local item = ox_inventory:GetCurrentWeapon(source)
+
+	if item and durability > 0 then
+		durability = math.floor(item.metadata.durability - durability)
+		item.metadata.durability = durability
+		item.metadata.ammo = durability
+
+		ox_inventory:SetMetadata(source, item.slot, item.metadata)
+		Wait(0)
+		return --TriggerClientEvent('ox_inventory:disarm', source)
+	end
+
+	-- player is sus?
+end)
+RegisterNetEvent('fuel:updateRefillFuelCan', function(durability)
+	local source = source
+	local item = ox_inventory:GetCurrentWeapon(source)
+
+	if item and durability > 0 then
+		durability = math.floor(item.metadata.durability + durability)
+		item.metadata.durability = durability
+		item.metadata.ammo = durability
+
+		ox_inventory:SetMetadata(source, item.slot, item.metadata)
+		Wait(0)
+		return --TriggerClientEvent('ox_inventory:disarm', source)
+	end
+
+	-- player is sus?
+end)
+
+-- ESX.RegisterCommand("fuel", 'admin', function(xPlayer, args, showError)
+--     local amount = tonumber(args.amount)
+--     if not amount then
+--         amount = 100
+--     end
+--     xPlayer.triggerEvent('esx-fuel:SetFuel', amount)
+-- end, false, {help = "Set fuel/charge for vehicle", validate = false, arguments = {
+-- 	{name = 'amount',validate = false, help = "Amount", type = 'string'}
+-- }}) 

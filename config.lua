@@ -2,11 +2,11 @@ Config = {}
 
 Config.Locale                     = 'en'
 
-Config.JerryCanCost = 100
+Config.JerryCanCost = 1000
 Config.JerryCanCapacity = 25
-Config.JerryCanWeaponAsItem = false         --For use with inventory systems that have weapons as item
+Config.JerryCanWeaponAsItem = true         --For use with inventory systems that have weapons as item
 
-Config.LiterPrice = 1.7
+Config.LiterPrice = 9.5
 Config.KwPrice = 0.3
 
 Config.RopeLength = 5.0
@@ -170,7 +170,7 @@ Config.ActionKey = 38 -- Key binds can be found here https://docs.fivem.net/docs
 Config.Texts3d = true               --Texts 3D that shows the fuel cap (can be ms hungry, but only when refill/charge)
 
 -- What keys are disabled while you're fueling with jerrycan.
-Config.DisableKeys = {0, 22, 23, 24, 29, 30, 31, 37, 44, 56, 82, 140, 166, 167, 168, 170, 288, 289, 311, 323}
+Config.DisableKeys = {0, 22, 23, 24, 29, 30, 31, 37, 44, 56, 82, 140, 166, 167, 168, 170, 288, 289, 311, 323, 38}
 
 -- Fuel decor - No need to change this, just leave it.
 Config.FuelDecor = "_FUEL_LEVEL"

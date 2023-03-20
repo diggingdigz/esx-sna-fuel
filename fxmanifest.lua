@@ -22,7 +22,8 @@ server_scripts {
 }
 
 client_scripts {
-	'client/main.lua'
+	'client/main.lua',
+	'client/petrolcan.lua'
 }
 
 dependencies {

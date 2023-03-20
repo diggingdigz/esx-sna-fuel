@@ -1,8 +1,4 @@
-local ESX = nil
-
-TriggerEvent('esx:getSharedObject', function(obj) ESX = obj end)
 local CurrentWeaponData
-
 local CurrentPumpProp
 local CurrentPumpObj = {}
 local CurrentPump
@@ -15,6 +11,7 @@ local CurrentMessage
 local IsMounted
 local IsFueling
 local VehicleOutOfFuel
+local ox_inventory = exports.ox_inventory
 
 function GetFuel(vehicle)
     local vehname = GetDisplayNameFromVehicleModel(GetEntityModel(vehicle)):lower()
@@ -59,6 +56,37 @@ function SetFuel(vehicle, fuel)
 end
 exports('SetFuel', SetFuel)
 
+local GasPumps = {
+    `prop_gas_pump_old2`,
+    `prop_gas_pump_1a`,
+    `prop_vintage_pump`,
+    `prop_gas_pump_old3`,
+    `prop_gas_pump_1c`,
+    `prop_gas_pump_1b`,
+    `prop_gas_pump_1d`,
+}
+local options = {
+    {
+        name = 'pumpfuel',
+        event = "esx-fuel:PickupPump",
+        icon = "fas fa-gas-pump",
+        label = _U("info.pickup_pump"),
+        canInteract = function(entity, distance, coords, name, bone)
+            return not IsEntityDead(entity)
+        end
+    }, 
+    {
+        name = 'jerryfuel',
+        event = "esx-fuel:BuyJerrican",
+        icon = "fas fa-cart-shopping",
+        label = _U("info.buy_jerrican"),
+        canInteract = function(entity, distance, coords, name, bone)
+            return not IsEntityDead(entity)
+        end
+    }
+}
+exports.ox_target:addModel(GasPumps, options)
+
 CreateThread(function() -- Set target for pumps and blips
     local Pumps = {}
 
@@ -66,21 +94,6 @@ CreateThread(function() -- Set target for pumps and blips
         table.insert(Pumps, v)
     end
     Wait(100)
-    exports['qb-target']:AddTargetModel(Pumps, {
-        options = {{
-            event = "esx-fuel:PickupPump",
-            icon = "fas fa-gas-pump",
-            label = _U("info.pickup_pump"),
-            entity = entity
-        }, {
-            event = "esx-fuel:BuyJerrican",
-            icon = "fas fa-cart-shopping",
-            label = _U("info.buy_jerrican"),
-            entity = entity
-        }},
-        job = {"all"},
-        distance = Config.MaxDistance
-    })
     for _, gasStationCoords in pairs(Config.GasStations) do
         local blip = AddBlipForCoord(gasStationCoords.x, gasStationCoords.y, gasStationCoords.z)
 
@@ -115,29 +128,34 @@ local function Round(num, numDecimalPlaces)
 end
 
 RegisterNetEvent("esx-fuel:BuyJerrican", function(data)
-    local ped = PlayerPedId()
-    local currentCash = ESX.GetPlayerData().money
-    if not HasPedGotWeapon(ped, 883325847) then
-        if currentCash >= Config.JerryCanCost then
-            TriggerServerEvent('esx-fuel:server:Pay', Config.JerryCanCost)
-            ESX.ShowNotification(_U("message.jerrican_bought"), "success")
-            TriggerServerEvent('esx-fuel:server:GiveJerrican')
-        end
-    else
-        local refillCost = Round(Config.JerryCanCapacity * Config.LiterPrice * (1 - GetAmmoInPedWeapon(ped, 883325847) / 4500))
-        if refillCost > 0 then
-            if currentCash >= refillCost then
-                TriggerServerEvent('esx-fuel:server:Pay', refillCost)
-                ESX.ShowNotification(_U("message.jerrican_refilled"), "success")
-                SetPedAmmo(ped, 883325847, 4500)
-                --TriggerServerEvent("weapons:server:UpdateWeaponAmmo", CurrentWeaponData, tonumber(4500))
+    ESX.TriggerServerCallback('market:checkstocks', function(result)
+        if result > 0 then
+            local ped = PlayerPedId()
+            local currentCash = ox_inventory:Search(2, 'money')
+            if not HasPedGotWeapon(ped, 883325847) then
+                if currentCash >= Config.JerryCanCost then
+                    TriggerServerEvent('esx-fuel:server:Pay', Config.JerryCanCost)
+                    ESX.ShowNotification(_U("message.jerrican_bought"), "success")
+                    TriggerServerEvent('esx-fuel:server:GiveJerrican')
+                end
             else
-                ESX.ShowNotification(_U("message.no_money"), "error")
+                local refillCost = Round(Config.JerryCanCapacity * Config.LiterPrice * (1 - GetAmmoInPedWeapon(ped, 883325847) / 4500))
+                if refillCost > 0 then
+                    if currentCash >= refillCost then
+                        TriggerServerEvent('esx-fuel:server:Pay', refillCost)
+                        ESX.ShowNotification(_U("message.jerrican_refilled"), "success")
+                        TriggerServerEvent('fuel:updateRefillFuelCan', 100)
+                    else
+                        ESX.ShowNotification(_U("message.no_money"), "error")
+                    end
+                else
+                    ESX.ShowNotification(_U("message.jerrican_full"), "error")
+                end
             end
         else
-            ESX.ShowNotification(_U("message.jerrican_full"), "error")
+            lib.notify({type = 'error', description = 'Out of stock! Current Stock: '..result..' ltr/s'})
         end
-    end
+    end, 'gasoline')
 end)
 
 local function DetectPetrolCap(electric)
@@ -170,53 +188,56 @@ local function DetectPetrolCap(electric)
 end
 
 RegisterNetEvent("esx-fuel:PickupPump", function(data)
-    if CurrentPump then
-        TriggerServerEvent('esx-fuel:server:DetachRope', PlayerPedId())
-        CurrentMessage = nil
-        --exports['qb-core']:KeyPressed()
-        --Wait(7)
-        -- exports['qb-core']:HideText()
-    else
-        local playerPed = PlayerPedId()
+    ESX.TriggerServerCallback('market:checkstocks', function(result)
+        if result > 0 then
+            if CurrentPump then
+                TriggerServerEvent('esx-fuel:server:DetachRope', PlayerPedId())
+                CurrentMessage = nil
+            else
+                local playerPed = PlayerPedId()
 
-        RequestModel('prop_cs_fuel_nozle')
-        while not HasModelLoaded('prop_cs_fuel_nozle') do
-            Wait(1)
+                RequestModel('prop_cs_fuel_nozle')
+                while not HasModelLoaded('prop_cs_fuel_nozle') do
+                    Wait(1)
+                end
+                CurrentPumpProp = CreateObject('prop_cs_fuel_nozle', 1.0, 1.0, 1.0, true, true, false)
+                CurrentPump = data.entity
+            
+                local bone = GetPedBoneIndex(playerPed, 60309)
+            
+                AttachEntityToEntity(CurrentPumpProp, playerPed, bone, 0.0549, 0.049, 0.0, -50.0, -90.0, -50.0, true, true, false, false, 0, true)
+            
+                RopeLoadTextures()
+                while not RopeAreTexturesLoaded() do
+                    Wait(1)
+                end
+
+                print(GetEntityModel(CurrentPump))
+
+                local pumpcoords = GetEntityCoords(CurrentPump)
+                local netIdProp = ObjToNet(CurrentPumpProp)     -- NetworkGetNetworkIdFromEntity(CurrentPumpProp)
+                SetNetworkIdExistsOnAllMachines(netIdProp, true)
+                NetworkSetNetworkIdDynamic(netIdProp, true)
+                SetNetworkIdCanMigrate(netIdProp, false)
+                TriggerServerEvent('esx-fuel:server:AttachRope', netIdProp, pumpcoords, GetEntityModel(CurrentPump))
+            
+                IsMounted = false
+                DetectPetrolCap(Config.PumpModels[GetEntityModel(CurrentPump)].electric) 
+                CurrentMessage = _U('info.info_pump')
+                
+            end
+        else
+            lib.notify({type = 'error', description = 'Out of stock! Current Stock: '..result..' ltr/s'})
         end
-        CurrentPumpProp = CreateObject('prop_cs_fuel_nozle', 1.0, 1.0, 1.0, true, true, false)
-        CurrentPump = data.entity
-    
-        local bone = GetPedBoneIndex(playerPed, 60309)
-    
-        AttachEntityToEntity(CurrentPumpProp, playerPed, bone, 0.0549, 0.049, 0.0, -50.0, -90.0, -50.0, true, true, false, false, 0, true)
-    
-        RopeLoadTextures()
-        while not RopeAreTexturesLoaded() do
-            Wait(1)
-        end
-
-        print(GetEntityModel(CurrentPump))
-
-        local pumpcoords = GetEntityCoords(CurrentPump)
-        local netIdProp = ObjToNet(CurrentPumpProp)     -- NetworkGetNetworkIdFromEntity(CurrentPumpProp)
-        SetNetworkIdExistsOnAllMachines(netIdProp, true)
-        NetworkSetNetworkIdDynamic(netIdProp, true)
-        SetNetworkIdCanMigrate(netIdProp, false)
-        TriggerServerEvent('esx-fuel:server:AttachRope', netIdProp, pumpcoords, GetEntityModel(CurrentPump))
-    
-        IsMounted = false
-        DetectPetrolCap(Config.PumpModels[GetEntityModel(CurrentPump)].electric)
-        --exports['qb-core']:DrawText(_U("info.info_pump"), Config.DrawTextLocation)    
-        CurrentMessage = _U('info.info_pump')
-        
-    end
+    end, 'gasoline')
 end)
 
 RegisterNetEvent("esx-fuel:RefuelVehicle", function(ped, vehicle)
     local startingfuel = DecorGetFloat(vehicle, Config.FuelDecor)
-    local startingCash = ESX.GetPlayerData().money
+    local startingCash = ox_inventory:Search(2, 'money')
     local vehname = GetDisplayNameFromVehicleModel(GetEntityModel(vehicle)):lower()
     local tank
+    local durability = 0
     if Config.TankSizes[vehname] then
         tank = Config.TankSizes[vehname]
     else
@@ -242,40 +263,19 @@ RegisterNetEvent("esx-fuel:RefuelVehicle", function(ped, vehicle)
         end
         currentFuel = currentFuel + fuelToAdd
         if currentFuel <= tank then
-            if CurrentPump == "can" then
-                local fuelToRemove
-                if Config.JerryCanWeaponAsItem then
-                    fuelToRemove = 100 / Config.JerryCanCapacity * fuelToAdd
-                else
-                    fuelToRemove = 4500 / Config.JerryCanCapacity * fuelToAdd
-                end
-                if GetAmmoInPedWeapon(ped, 883325847) - fuelToRemove >= 0 then
-                    local ammo = math.floor(GetAmmoInPedWeapon(ped, 883325847) - fuelToRemove)
-                    SetPedAmmo(ped, 883325847, ammo)
-                    --TriggerServerEvent("weapons:server:UpdateWeaponAmmo", CurrentWeaponData, ammo)
-                else
-                    IsFueling = false
-                end
-                --exports['qb-core']:DrawText(_U("info.jerrican_refilling", { value = Round(currentFuel - startingfuel, 1)}), Config.DrawTextLocation)
-                --ESX.ShowHelpNotification(_U('info.jerrican_refilling'))
-                CurrentMessage = _U('info.jerrican_refilling', Round(currentFuel - startingfuel, 1))
+
+            if not Config.PumpModels[GetEntityModel(CurrentPump)].electric then
+                CurrentCost = CurrentCost + (Config.LiterPrice * fuelToAdd)
+                CurrentMessage = _U('info.refilling', Round(currentFuel - startingfuel, 1), math.floor(CurrentCost))
             else
-                if not Config.PumpModels[GetEntityModel(CurrentPump)].electric then
-                    CurrentCost = CurrentCost + (Config.LiterPrice * fuelToAdd)
-                    --exports['qb-core']:DrawText(_U("info.refilling", { value = Round(currentFuel - startingfuel, 1), value2 = math.floor(CurrentCost) }), Config.DrawTextLocation)
-                    --ESX.ShowHelpNotification(_U('info.refilling'))
-                    CurrentMessage = _U('info.refilling', Round(currentFuel - startingfuel, 1), math.floor(CurrentCost))
-                else
-                    CurrentCost = CurrentCost + (Config.KwPrice * fuelToAdd)
-                    --exports['qb-core']:DrawText(_U("info.recharging", { value = Round(currentFuel - startingfuel, 1), value2 = math.floor(CurrentCost) }), Config.DrawTextLocation)
-                    --ESX.ShowHelpNotification(_U('info.recharging'))
-                    CurrentMessage = _U('info.recharging', Round(currentFuel - startingfuel, 1), math.floor(CurrentCost))
-                end
-                if CurrentCost >= startingCash then
-                    print("No more cash")
-                    IsFueling = false
-                end
+                CurrentCost = CurrentCost + (Config.KwPrice * fuelToAdd)
+                CurrentMessage = _U('info.recharging', Round(currentFuel - startingfuel, 1), math.floor(CurrentCost))
             end
+            if CurrentCost >= startingCash then
+                print("No more cash")
+                IsFueling = false
+            end
+
             if currentFuel == tank then
                 print("Tank full")
                 DecorSetFloat(vehicle, Config.FuelDecor, currentFuel + 0.0)
@@ -288,6 +288,7 @@ RegisterNetEvent("esx-fuel:RefuelVehicle", function(ped, vehicle)
             if CurrentCost ~= 0 then
                 print("Payment", CurrentCost)
                 TriggerServerEvent('esx-fuel:server:Pay', math.floor(CurrentCost))
+                TriggerServerEvent('fuel:startBuy','gasoline',currentFuel)
                 CurrentCost = 0
             end
         end
@@ -313,40 +314,31 @@ CreateThread(function() -- Check key presses
                 local playerPed = PlayerPedId()
                 if #(GetEntityCoords(playerPed) - CurrentCapPos) < 3.0 then -- Mount/Dismount pump
                     if not IsMounted then
-                        -- Mount 
-                        if CurrentPump ~= "can" then
+                        if CurrentPump == "can" then
+                            CurrentPump = nil
+                            CurrentCapPos = nil
+                            CurrentCost = 0
+                        else
                             local offset = GetOffsetFromEntityGivenWorldCoords(CurrentVehicle, CurrentCapPos.x, CurrentCapPos.y, CurrentCapPos.z)
                             DetachEntity(CurrentPumpProp, true, true)
                             AttachEntityToEntity(CurrentPumpProp, CurrentVehicle, nil, offset.x, offset.y, offset.z, -50.0, 0.0, -90.0, true, true, false, false, 0, true)
-                        else
-                            TaskTurnPedToFaceCoord(playerPed, CurrentCapPos, -1)
-                            LoadAnimDict("weapons@misc@jerrycan@")
-                            TaskPlayAnim(playerPed, "weapons@misc@jerrycan@", "fire", 2.0, 8.0, -1, 50, 0, 0, 0, 0)
+
+                            IsMounted = true
+                            IsFueling = true
+                            CurrentCost = 0
+                            TriggerEvent("esx-fuel:RefuelVehicle", playerPed, CurrentVehicle)
                         end
-                        IsMounted = true
-                        IsFueling = true
-                        CurrentCost = 0
-                        TriggerEvent("esx-fuel:RefuelVehicle", playerPed, CurrentVehicle)
                     else
-                        -- Dismount
-                        if CurrentPump ~= "can" then
-                            DetachEntity(CurrentPumpProp, true, true)
-                            local bone = GetPedBoneIndex(playerPed, 28422)
-                            AttachEntityToEntity(CurrentPumpProp, playerPed, bone, 0.0549, 0.049, 0.0, -50.0, -90.0, -50.0, true, true, false, false, 0, true)
-                        else
-                            ClearPedTasks(playerPed)
-                            RemoveAnimDict("weapons@misc@jerrycan@")                            
-                            --exports['qb-core']:KeyPressed()
-                            --Wait(7)
-                            CurrentMessage = nil
-                        end
+    
+                        DetachEntity(CurrentPumpProp, true, true)
+                        local bone = GetPedBoneIndex(playerPed, 28422)
+                        AttachEntityToEntity(CurrentPumpProp, playerPed, bone, 0.0549, 0.049, 0.0, -50.0, -90.0, -50.0, true, true, false, false, 0, true)
+
                         IsMounted = false
                         IsFueling = false
-                        if CurrentPump ~= "can" then
-                            --exports['qb-core']:DrawText(_U("info.info_pump"), Config.DrawTextLocation)
-                            --ESX.ShowHelpNotification(_U('info.info_pump'))
-                            CurrentMessage = _U("info.info_pump")
-                        end
+
+                        CurrentMessage = _U("info.info_pump")
+
                     end
                 end
                 Wait(1000)
@@ -386,16 +378,11 @@ CreateThread(function() -- Frame thread
             sleep = 0
             if not IsMounted then
                 if Config.Texts3d then
-                    DrawText3Ds(CurrentCapPos.x, CurrentCapPos.y, CurrentCapPos.z, _U("info.mount_pump"))                    
+                    DrawText3Ds(CurrentCapPos.x, CurrentCapPos.y, CurrentCapPos.z, _U("info.mount_pump"))       
                 end
             else
                 if Config.Texts3d then
                     DrawText3Ds(CurrentCapPos.x, CurrentCapPos.y, CurrentCapPos.z, _U("info.dismount_pump"))
-                end
-                if CurrentPump == "can" then
-                    for _, controlIndex in pairs(Config.DisableKeys) do
-                        DisableControlAction(0, controlIndex)
-                    end            
                 end
             end
         end
@@ -429,7 +416,6 @@ local function ManageFuelUsage(vehicle)
             end
             if fuel > 0 then
                 DecorSetFloat(vehicle, Config.FuelDecor, fuel)
-                --print("Fuel:", fuel)
                 VehicleOutOfFuel = nil
                 SetVehicleFuelLevel(vehicle, 50.0)
             else
@@ -487,16 +473,28 @@ CreateThread(function()
             TriggerEvent('esx-fuel:PickupPump')
             ESX.ShowNotification(_U("message.to_far_away"), "error")
         end
+        -- if IsPedInAnyVehicle(ped, false) then
+        --     local vehicle = GetVehiclePedIsIn(ped, false)
+
+        --     if GetPedInVehicleSeat(vehicle, -1) == ped then
+        --         ManageFuelUsage(vehicle)
+        --     end
+        -- end
+        -- if CurrentPump and not IsMounted then
+        --     if #(GetEntityCoords(ped) - GetEntityCoords(CurrentPump)) >= Config.RopeMaxLength then
+        --         TriggerEvent('esx-fuel:PickupPump')
+        --         ESX.ShowNotification(_U("message.to_far_away"), "error")
+        --     end
+        -- end
+        -- if IsMounted and #(GetEntityCoords(CurrentVehicle) - GetEntityCoords(CurrentPump)) >= Config.RopeMaxLength then
+        --     IsFueling = false
+        --     IsMounted = false
+        --     Wait(1000)
+        --     TriggerEvent('esx-fuel:PickupPump')
+        --     ESX.ShowNotification(_U("message.to_far_away"), "error")
+        -- end
     end
 end)
-
---AddEventHandler('weapons:client:SetCurrentWeapon', function(data, bool)
---    if bool ~= false then
---        CurrentWeaponData = data
---    else
---        CurrentWeaponData = {}
---    end
---end)
 
 AddEventHandler("onResourceStop", function(resource)
     if resource == GetCurrentResourceName() then
@@ -505,7 +503,6 @@ AddEventHandler("onResourceStop", function(resource)
             DeleteEntity(CurrentPumpProp)
         end
         CurrentMessage = nil
-        --exports['qb-core']:HideText()
     end
 end)
 
