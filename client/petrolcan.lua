@@ -80,6 +80,7 @@ local function startFuelingCan(vehicle, isPump)
 		Wait(250)
 	end
     TriggerServerEvent('fuel:updateFuelCan', durability, NetworkGetNetworkIdFromEntity(vehicle), fuel)
+	ApplyFuel(vehicle, fuel)
 end
 
 RegisterCommand('startfueling', function()
